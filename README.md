@@ -1,6 +1,8 @@
 # brainblenda
 python tools for visualising neurons in Blender. Liases with Snudda (https://github.com/wstho/Snudda) to visualise neural simulations in 3D.
 
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+
 ## Contact details
 W. S. Thompson, Karolinska Institutet
 william.scott.thompson@ki.se
