@@ -480,7 +480,9 @@ def build_from_swc(
     alpha=1,
 ):
     """
-    renders a neuron in blender from an swc file, using bezier curves.
+    renders a neuron in blender from an .swc file, using bezier curves.
+    
+    Inspired by https://github.com/Hjorthmedh/Snudda/blob/master/snudda/plotting/Blender/io_mesh_swc/operator_swc_import.py
 
     filepath (str): path to SWC file of neuron to be rendered
     name (str, optional): neuron name, will be passed to object name in Blender. Default: None.
