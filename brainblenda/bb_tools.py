@@ -60,9 +60,11 @@ def clear_scene(bg_colour=(1, 1, 1, 1), clipping=1e6, raw_colours=True):
             for space in area.spaces:
                 if space.type == "VIEW_3D":
                     space.clip_end = clipping
-
+                    space.shading.type = 'RENDERED'
+                    
     if raw_colours:
         bpy.context.scene.view_settings.view_transform = "Raw"
+
 
     return
 
