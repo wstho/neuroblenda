@@ -22,13 +22,13 @@ import math
 import random
 import numpy as np
 
-from snudda.utils.snudda_path import snudda_parse_path, get_snudda_data
+from snudda.utils.snudda_path import snudda_parse_path
 from snudda import SnuddaLoad
 
 
-default_colours = [(0.168, 0.416, 0.8), (0.8, 0.294, 0.134)]
-snr_colour = [52 / 255, 168 / 255, 224 / 255, 1]
-midline = 5691.66
+# default_colours = [(0.168, 0.416, 0.8), (0.8, 0.294, 0.134)]
+# snr_colour = [52 / 255, 168 / 255, 224 / 255, 1]
+# midline = 5691.66
 
 ### Allen import convention: axis_forward = 'Y', axis_up = 'Z'
 ### coord_conv = {'Mouselight': {'X':4, 'Y':3, 'Z':2}, 'Peng': {'X':2, 'Y':3, 'Z':4}}
@@ -284,14 +284,28 @@ def flip_mesh_across_midline(obj, midline=5691.66):
     return
 
 
-def bisect_at_midline(obj, midline = 5691.66):
+def bisect_object(obj, plane = 'sagittal', location = 5691.66):
+    """
+    splits mesh objects at specified plane
+    obj (bpy.types.Object): blender mesh object.
+    plane (str): desired plane, accepts 'sagittal', 'coronal' or 'horizontal'. Follows conventions of Allen meshes.
+    location (float): location along axis to bisect.
 
+    """
+    
+    assert plane.lower() in ['sagittal', 'coronal', 'horizontal'], f'Ensure plane is one of sagittal, coronal, or horizontal. Received: {plane}.'
+    
     bpy.ops.object.mode_set(mode='OBJECT')
     bpy.ops.object.mode_set(mode='EDIT')
     bpy.ops.mesh.select_all(action='SELECT')
     
-    plane_co = (0, 0, midline)  
-    plane_no = (0, 0, 1)  
+    plane_key = {'sagittal': 2, 'coronal': 0, 'horizontal':1}
+    
+    plane_co = [0, 0, 0]
+    plane_no = [0, 0, 0] 
+    
+    plane_co[plane_key[plane.lower()]] = location
+    plane_no[plane_key[plane.lower()]] = 1
     
     bpy.ops.mesh.bisect(
         plane_co=plane_co,
@@ -309,7 +323,11 @@ def bisect_at_midline(obj, midline = 5691.66):
 def set_origin_to_center(obj):
 
     """
-    sets origin to center of volume of object    
+    sets origin to center of volume of object 
+    obj (bpy.types.Object): blender mesh object.
+
+    returns:
+        obj.location: (XYZ)
     """
     
     if bpy.context.active_object and bpy.context.active_object.mode != 'OBJECT':
@@ -326,7 +344,15 @@ def add_tracked_camera(target_name, rotate = True, coronal = True, x_res = 2160,
     """
     adds a camera to the scene, tracked to the center of a specified object.
     
+    target_name (str): name of object to track to.
+    rotate (bool): whether the camera should rotate about the object.
+    coronal (bool): if True, will set a coronal view (Allen convention). 
+    x_res, y_res (int): resolution of x and y axes of camera (px).
+    
     """
+    
+    x_res = round(x_res)
+    y_res = round(y_res)
     
     target = bpy.data.objects[target_name]
     set_origin_to_center(target)
@@ -388,17 +414,26 @@ def add_tracked_camera(target_name, rotate = True, coronal = True, x_res = 2160,
     return
 
 
-def animate_visibility(obj, frame):
+def animate_visibility(obj, frame, on = True):
+    """
+    animates the visibility of an object in both render and viewport.
+    
+    obj (bpy.types.Object): blender mesh object.
+    frame (int): keyframe at which the object should change visibility
+    on (bool): if True, the object will start invisibile and become visibile at frame. If False, the inverse will occur. Default: True. 
+    
+    """
+    
     bpy.context.scene.frame_set(1)
-    obj.hide_render = True  
+    obj.hide_render = on  
     obj.keyframe_insert(data_path="hide_render", frame=1)
-    obj.hide_viewport = True
+    obj.hide_viewport = on
     obj.keyframe_insert(data_path="hide_viewport", frame=1)
     
     bpy.context.scene.frame_set(frame)
-    obj.hide_render = False
+    obj.hide_render = ~on
     obj.keyframe_insert(data_path="hide_render", frame=frame)
-    obj.hide_viewport = False
+    obj.hide_viewport = ~on
     obj.keyframe_insert(data_path="hide_viewport", frame=frame)
 
     for fcurve in obj.animation_data.action.fcurves:
@@ -1316,6 +1351,6 @@ def virtual_synapse_coordinates(input_file, neuron_id, input_prefix, snudda_data
 
 if __name__ == "__main__":
     print(
-        "Do not run this file directly. Call functions from python within blender, please & thank you!"
+        "Do not run this file directly. Call functions from python within blender please!"
     )
     sys.exit(-1)
