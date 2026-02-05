@@ -350,6 +350,7 @@ def set_origin_to_center(obj):
 def add_tracked_camera(
     target_name,
     rotate=True,
+    rotation_time = 360,
     coronal=True,
     x_res=2160,
     y_res=2160,
@@ -363,6 +364,7 @@ def add_tracked_camera(
 
     target_name (str): name of object to track to.
     rotate (bool): whether the camera should rotate about the object.
+    rotation_time (int, optional): time (in keyframes) for a full rotation. Default: 360.
     coronal (bool): if True, will set a coronal view (Allen convention).
     x_res, y_res (int): resolution of x and y axes of camera (px).
     altitude (float): altitude of camera angle w.r.t. horizontal plane, in degrees. Default: 0.
@@ -423,9 +425,9 @@ def add_tracked_camera(
         em.rotation_euler = [0, 0, math.radians(altitude)]
         em.keyframe_insert(data_path="rotation_euler", frame=1)
         em.rotation_euler = [0, math.radians(360), math.radians(altitude)]
-        em.keyframe_insert(data_path="rotation_euler", frame=360)
+        em.keyframe_insert(data_path="rotation_euler", frame=rotation_time)
 
-        bpy.data.scenes["Scene"].frame_end = 360
+        bpy.data.scenes["Scene"].frame_end = rotation_time
 
         for fcurve in em.animation_data.action.fcurves:
             for keyframe in fcurve.keyframe_points:
@@ -473,7 +475,8 @@ def build_from_swc(
     flip=False,
     midline=5691.66,
     rotate=False,
-    rotating=False,
+    rotating=None,
+    rotation_time = 360,
     draw_axon=False,
     fill_process_tips=False,
     merge_threshold=0.001,
@@ -489,11 +492,12 @@ def build_from_swc(
     filepath (str): path to SWC file of neuron to be rendered
     name (str, optional): neuron name, will be passed to object name in Blender. Default: None.
     lx, ly, lz (float, optional): soma offsets in XYZ. Default: 0.
-    coord_space (dict, optional): specified coordinate space if different from default. Default: {'X':2, 'Y':3,'Z':4}.
+    coord_space (dict, optional): specified coordinate space if different from default. Default: {'X':2, 'Y':3, 'Z':4}.
     flip (bool, optional): if True, flips the neuron about the midline.
     midline (float, optional): midline of brain (Allen CCF). Default 5691.66.
     rotate (bool, optional): Applies random rotatation if true. Will be overriden by 'rotating'.
-    rotating (bool, optional): Animates rotation about Z, at 1° per frame. Will override 'rotate'.
+    rotating (str, optional): Animates rotation about specified axis. Will override 'rotate'. Default: None.
+    rotation_time (int, optional): time (in keyframes) for a full rotation. Default: 360.
     draw_axon (bool, optional): If False, axons (ie., SWC type 2) will not be rendered.
     fill_process_tips (bool optional): If True, fills neurite tips with spheres for aesthetics. Warning: slow for large numbers of neurons.
     merge_threshold (float, optional): Distance within which vertices will be merged. Higher values reduce the complexity of the resulting object. Default: 0.001.
@@ -566,12 +570,17 @@ def build_from_swc(
     em.name = bulletproof_name(name)
 
     if rotating:
+        assert rotating.lower() in ['x', 'y', 'z'], f'{rotating} not an axis name'
+        
         em.rotation_euler = [0, 0, 0]
         em.keyframe_insert(data_path="rotation_euler", frame=1)
-        em.rotation_euler = [0, 0, math.radians(360)]
-        em.keyframe_insert(data_path="rotation_euler", frame=360)
+        
+        r_dict = {'x': 0, 'y':1, 'z': 2}
+        em.rotation_euler[r_dict[rotating.lower()]] = math.radians(360)
 
-        bpy.data.scenes["Scene"].frame_end = 360
+        em.keyframe_insert(data_path="rotation_euler", frame=rotation_time)
+
+        bpy.data.scenes["Scene"].frame_end = rotation_time
 
         for fcurve in em.animation_data.action.fcurves:
             for keyframe in fcurve.keyframe_points:
@@ -828,7 +837,6 @@ def mesh_from_coordinates(coordinates, name=None, reference_object=None, scale_f
     mesh_object = bpy.data.objects.new("coordinates", mesh)
     mesh_object.name = f"{name}_temp"
 
-    # create mesh from coords
     mesh.from_pydata(coordinates * scale_f, [], [])
     mesh.update(calc_edges=True)
 
@@ -871,6 +879,130 @@ def mesh_from_coordinates(coordinates, name=None, reference_object=None, scale_f
     frame_selected()
 
     return joined_obj
+
+
+def voxels_from_coordinates_GN(coordinates,  values = None, colour = None, voxel_size = 50):
+    """
+    creates a blender object from a set of voxel coordinates, using blender geometry nodes for speed-ups with large numbers of points.
+
+
+    coordinates (Nx3 array): coordinates of interest.
+    values (array of length N, optional): list of values for each voxel. Mapped to alpha value. 
+    colour (RGBA, optional): colour to render mesh in. If not specfied a random colour will be generated.
+    voxel_size (float, optional): voxel size in blender space. Default: 50.
+
+    returns:
+        obj (bpy.types.Object): blender mesh object.
+    """
+    
+    if not colour:
+        colour = random_RGBA()
+    else:
+        assert len(colour) == 4, "colour must RGBA"
+        
+        
+    if len(values) != len(coordinates):
+        values = np.ones(shape = [1, len(coordinates)])
+        
+            
+    mesh = bpy.data.meshes.new("VoxelPointsMesh")
+    mesh.from_pydata(coordinates, [], [])
+    mesh.update()
+    
+    attr = mesh.attributes.new(
+        name="value",
+        type='FLOAT',
+        domain='POINT'
+    )
+    
+    for idx, v in enumerate(values):
+        attr.data[idx].value = float(v)
+    
+    obj = bpy.data.objects.new("VoxelPoints", mesh)
+    bpy.context.collection.objects.link(obj)
+    
+    mod = obj.modifiers.new(name="VoxelGN", type='NODES')
+    ng = bpy.data.node_groups.new("VoxelNodeTree", 'GeometryNodeTree')
+    mod.node_group = ng
+    
+    ng.interface.new_socket("Geometry", in_out='INPUT', socket_type='NodeSocketGeometry')
+    ng.interface.new_socket("Geometry", in_out='OUTPUT', socket_type='NodeSocketGeometry')
+    
+    nodes = ng.nodes
+    links = ng.links
+    nodes.clear()
+    
+    group_in = nodes.new("NodeGroupInput")
+    group_out = nodes.new("NodeGroupOutput")
+    named_attr = nodes.new("GeometryNodeInputNamedAttribute")
+    capture = nodes.new("GeometryNodeCaptureAttribute")
+    inst = nodes.new("GeometryNodeInstanceOnPoints")
+    cube = nodes.new("GeometryNodeMeshCube")
+    store_color = nodes.new("GeometryNodeStoreNamedAttribute")
+    realize = nodes.new("GeometryNodeRealizeInstances")
+    combine_color = nodes.new("FunctionNodeCombineColor")
+    
+    cube.inputs["Size"].default_value = [voxel_size]*3
+    
+    named_attr.data_type = 'FLOAT'
+    named_attr.inputs["Name"].default_value = "value"
+    
+    capture.data_type = 'FLOAT'
+    capture.domain = 'POINT'
+    
+    store_color.data_type = 'BYTE_COLOR'
+    store_color.domain = 'CORNER'
+    store_color.inputs["Name"].default_value = "Color"
+    
+    combine_color.inputs["Red"].default_value = colour[0]
+    combine_color.inputs["Green"].default_value = colour[1]
+    combine_color.inputs["Blue"].default_value = colour[2]
+    
+    links.new(group_in.outputs["Geometry"], capture.inputs["Geometry"])
+    links.new(named_attr.outputs["Attribute"], capture.inputs["Value"])
+    links.new(capture.outputs["Geometry"], inst.inputs["Points"])
+    links.new(cube.outputs["Mesh"], inst.inputs["Instance"])
+    links.new(inst.outputs["Instances"], realize.inputs["Geometry"])
+    links.new(realize.outputs["Geometry"], store_color.inputs["Geometry"])
+    links.new(capture.outputs["Attribute"], combine_color.inputs["Alpha"])
+    links.new(combine_color.outputs["Color"], store_color.inputs["Value"])
+    links.new(store_color.outputs["Geometry"], group_out.inputs["Geometry"])
+    
+    # Apply the modifier
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.modifier_apply(modifier="VoxelGN")
+    
+    obj.data.materials.clear()
+    
+    material = bpy.data.materials.new(name="mat")
+    material.use_nodes = True
+    material.blend_method = 'BLEND'
+    material.shadow_method = 'CLIP'
+    
+    mat_nodes = material.node_tree.nodes
+    mat_links = material.node_tree.links
+    
+    color_attr_node = mat_nodes.new("ShaderNodeVertexColor")
+    color_attr_node.layer_name = "Color"
+    
+    pbsdf_node = mat_nodes["Principled BSDF"]
+    pbsdf_node.inputs["Metallic"].default_value = 0
+    pbsdf_node.inputs["Roughness"].default_value = 0.5
+    pbsdf_node.inputs["Base Color"].default_value = (colour[0], colour[1], colour[2], 1.0)
+    
+    mat_links.new(color_attr_node.outputs["Alpha"], pbsdf_node.inputs["Alpha"])
+    
+    obj.data.materials.append(material)
+    
+    for poly in obj.data.polygons:
+        poly.material_index = 0
+    
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.shade_smooth()
+    
+    return obj
 
 
 def draw_somas(
